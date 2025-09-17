@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from sympy import symbols, Eq, solve
-import numpy as np
 
 class DirectedGraphApp:
     NODE_RADIUS = 15
@@ -14,23 +13,22 @@ class DirectedGraphApp:
         style.configure("Treeview", font=("Roboto Flex", 10))
         style.configure("Treeview.Heading", font=("Roboto Flex", 10, "bold"))
 
+        # Канвас для визуализации графа
         self.canvas = tk.Canvas(root, width=700, height=500, bg='white')
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.canvas.bind('<Button-1>', self.left_click_canvas)
-        self.canvas.bind('<Button-3>', self.right_click_canvas)
-        self.canvas.bind('<ButtonPress-1>', self.scan_start)
-        self.canvas.bind('<B1-Motion>', self.scan_move)
-        self.canvas.bind('<MouseWheel>', self.mousewheel_zoom)  # Windows, Linux
-        self.canvas.bind('<Button-4>', self.mousewheel_zoom)  # Linux wheel up
-        self.canvas.bind('<Button-5>', self.mousewheel_zoom)  # Linux wheel down
+        # Привязка кликов мыши
+        self.canvas.bind('<Button-1>', self.left_click_canvas)    # Левая кнопка
+        self.canvas.bind('<Button-3>', self.right_click_canvas)   # Правая кнопка
 
+        # Правая панель с вкладками
         right_frame = tk.Frame(root)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         tab_control = ttk.Notebook(right_frame)
         tab_control.pack(fill=tk.BOTH, expand=True)
 
+        # Вкладка с уравнениями и матрицей
         frame_eq = tk.Frame(tab_control)
         frame_eq.pack(fill=tk.BOTH, expand=True)
 
@@ -43,24 +41,31 @@ class DirectedGraphApp:
 
         tab_control.add(frame_eq, text="Уравнения и матрица")
 
-        self.nodes_tree = ttk.Treeview(tab_control, columns=('H_val', 'Type'), show='headings')
-        self.nodes_tree.heading('H_val', text='H значение')
+        # Вкладка с таблицей узлов (напор и тип)
+        self.nodes_tree = ttk.Treeview(tab_control, columns=('H_val', 'y_val', 'Type'), show='headings')
+        self.nodes_tree.heading('H_val', text='H (напор)')
         self.nodes_tree.column('H_val', width=100)
+        self.nodes_tree.heading('y_val', text='y (высота)')
+        self.nodes_tree.column('y_val', width=100)
         self.nodes_tree.heading('Type', text='Тип узла')
         self.nodes_tree.column('Type', width=100)
         tab_control.add(self.nodes_tree, text="Узлы")
         self.nodes_tree.bind("<Double-1>", self.on_node_edit)
 
-        self.edges_tree = ttk.Treeview(tab_control, columns=('Start', 'End', 'Q_val'), show='headings')
+        # Вкладка с таблицей рёбер
+        self.edges_tree = ttk.Treeview(tab_control, columns=('Start', 'End', 'Q_val', 'K_val'), show='headings')
         self.edges_tree.heading('Start', text='Начало')
         self.edges_tree.column('Start', width=80)
         self.edges_tree.heading('End', text='Конец')
         self.edges_tree.column('End', width=80)
         self.edges_tree.heading('Q_val', text='Расход Q')
         self.edges_tree.column('Q_val', width=100)
+        self.edges_tree.heading('K_val', text='Коэффициент K')
+        self.edges_tree.column('K_val', width=130)
         tab_control.add(self.edges_tree, text="Рёбра")
         self.edges_tree.bind("<Double-1>", self.on_edge_edit)
 
+        # Нижняя панель со списком входного и выходных узлов
         middle_frame = tk.Frame(right_frame, bg="lightgray", height=150)
         middle_frame.pack(fill=tk.BOTH, expand=False)
 
@@ -76,106 +81,48 @@ class DirectedGraphApp:
         self.output_listbox = tk.Listbox(output_frame, font=("Roboto Flex", 10))
         self.output_listbox.pack(fill=tk.BOTH, expand=True)
 
+        # Нижняя панель кнопок
         btn_frame = tk.Frame(root)
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        tk.Button(btn_frame, text="Задать граничные условия", font=("Roboto Flex", 10),
-                  command=self.open_bc_dialog).pack(side=tk.LEFT)
-        tk.Button(btn_frame, text="Найти пути и обновить расходы", font=("Roboto Flex", 10),
-                  command=self.find_paths_and_update_flows).pack(side=tk.LEFT)
-        tk.Button(btn_frame, text="Перерасчитать", font=("Roboto Flex", 10),
-                  command=self.recalculate).pack(side=tk.LEFT)
+        tk.Button(btn_frame, text="Граничные условия", font=("Roboto Flex", 10), command=self.open_bc_dialog).pack(side=tk.LEFT)
+        tk.Button(btn_frame, text="Инициализация", font=("Roboto Flex", 10), command=self.find_paths_and_update_flows).pack(side=tk.LEFT)
+        tk.Button(btn_frame, text="Решить", font=("Roboto Flex", 10), command=self.recalculate).pack(side=tk.LEFT)
 
-        self.nodes = []
-        self.edges = []
-        self.H_values = {}
-        self.Q_values = {}
-        self.node_types = {}
+        # Основные данные графа
+        self.nodes = []            # Список координат узлов [(x, y), ...]
+        self.edges = []            # Список рёбер [(start_idx, end_idx), ...]
+        self.H_values = {}         # Напоры H по узлам, ключ: индекс 1-based, значение: float
+        self.node_heights = {}     # Высоты y по узлам, ключ: индекс 1-based, значение: float
+        self.Q_values = {}         # Расходы по рёбрам, ключ: (start, end), значение: float
+        self.K_values = {}         # Коэффициенты сопротивления K по рёбрам
+        self.K = 1.0               # Значение K по умолчанию
+        self.node_types = {}       # Типы узлов normal/input/output, ключ: индекс 0-based
         self.input_node = None
         self.output_nodes = set()
-        self.K = 1.0
+
         self.all_paths = []
         self.equation_list = []
-
         self.selected_nodes = []
-
-        # Для управления трансформациями
-        self.scale = 1.0
-        self.offset_x = 0
-        self.offset_y = 0
 
         self.redraw()
         self.update_trees()
         self.update_node_lists()
 
-    # Трансформация координат с учётом сдвига и масштаба
-    def transform(self, x, y):
-        return x * self.scale + self.offset_x, y * self.scale + self.offset_y
-
-    # Обратная трансформация (для поиска узла)
-    def inverse_transform(self, x, y):
-        return (x - self.offset_x) / self.scale, (y - self.offset_y) / self.scale
-
-    def scan_start(self, event):
-        self.scan_start_x = event.x
-        self.scan_start_y = event.y
-
-    def scan_move(self, event):
-        dx = event.x - self.scan_start_x
-        dy = event.y - self.scan_start_y
-
-        self.offset_x += dx
-        self.offset_y += dy
-
-        self.scan_start_x = event.x
-        self.scan_start_y = event.y
-
-        self.redraw()
-
-    def mousewheel_zoom(self, event):
-        factor = 1.0
-        if hasattr(event, 'delta'):
-            if event.delta > 0:
-                factor = 1.1
-            elif event.delta < 0:
-                factor = 0.9
-        elif hasattr(event, 'num'):
-            if event.num == 4:
-                factor = 1.1
-            elif event.num == 5:
-                factor = 0.9
-
-        old_scale = self.scale
-        self.scale *= factor
-        if self.scale < 0.1:
-            self.scale = 0.1
-        if self.scale > 10:
-            self.scale = 10
-
-        factor = self.scale / old_scale
-        x = self.canvas.canvasx(event.x)
-        y = self.canvas.canvasy(event.y)
-
-        # Смещаем так, чтобы масштабировать относительно позиции курсора
-        self.offset_x = factor * (self.offset_x - x) + x
-        self.offset_y = factor * (self.offset_y - y) + y
-
-        self.redraw()
-
     def find_node(self, x, y):
-        inv_x, inv_y = self.inverse_transform(x, y)
+        """Найти узел по координатам клика"""
         for idx, (nx, ny) in enumerate(self.nodes):
-            dx = nx - inv_x
-            dy = ny - inv_y
-            dist_squared = dx * dx + dy * dy
-            if dist_squared <= (self.NODE_RADIUS / self.scale) ** 2:
+            dx = nx - x
+            dy = ny - y
+            dist_sq = dx * dx + dy * dy
+            if dist_sq <= self.NODE_RADIUS * self.NODE_RADIUS:
                 return idx
         return None
 
     def left_click_canvas(self, event):
+        """Добавить узел или нарисовать ребро при последовательных кликах"""
         clicked = self.find_node(event.x, event.y)
         if clicked is None:
-            inv_x, inv_y = self.inverse_transform(event.x, event.y)
-            self.add_node(inv_x, inv_y)
+            self.add_node(event.x, event.y)
         else:
             self.selected_nodes.append(clicked)
             if len(self.selected_nodes) == 2:
@@ -188,14 +135,13 @@ class DirectedGraphApp:
         self.update_node_lists()
 
     def right_click_canvas(self, event):
+        """Удалить узел или ребро по правому клику"""
         clicked_node = self.find_node(event.x, event.y)
         if clicked_node is not None:
             self.delete_node(clicked_node)
         else:
             for idx, (s, e) in enumerate(self.edges):
-                x1, y1 = self.transform(*self.nodes[s])
-                x2, y2 = self.transform(*self.nodes[e])
-                if self.point_near_line(event.x, event.y, x1, y1, x2, y2):
+                if self.point_near_line(event.x, event.y, self.nodes[s][0], self.nodes[s][1], self.nodes[e][0], self.nodes[e][1]):
                     self.delete_edge(idx)
                     break
         self.redraw()
@@ -203,6 +149,7 @@ class DirectedGraphApp:
         self.update_node_lists()
 
     def point_near_line(self, px, py, x1, y1, x2, y2, tol=5):
+        """Проверяет, находится ли точка (px, py) на расстоянии tol от линии (x1,y1)-(x2,y2)"""
         from math import sqrt
         dx = x2 - x1
         dy = y2 - y1
@@ -215,35 +162,57 @@ class DirectedGraphApp:
         return dist < tol
 
     def add_node(self, x, y):
+        """Добавить узел и пометить типом normal"""
         self.nodes.append((x, y))
         idx = len(self.nodes) - 1
-        self.node_types[idx] = "normal"
+        self.node_types[idx] = "normal"  # тип по умолчанию
+        # Для нового узла установим напор и высоту по умолчанию
+        # self.H_values[idx + 1] = 0.0
+        self.node_heights[idx + 1] = 0.0
+        h_val = self.H_values.get(idx + 1, 0.0)
+        y_val = self.node_heights.get(idx + 1, 0.0)
+        self.nodes_tree.insert('', 'end', iid=f"node{idx+1}",
+                            values=(f"{h_val:.2f}", f"{y_val:.2f}", "normal"))
+
 
     def delete_node(self, node_idx):
+        """Удалить узел и связанные с ним рёбра"""
         self.nodes.pop(node_idx)
         self.node_types.pop(node_idx, None)
         self.H_values = {k: v for k, v in self.H_values.items() if k != node_idx + 1}
+        self.node_heights = {k: v for k, v in self.node_heights.items() if k != node_idx + 1}
         self.edges = [(s, e) for s, e in self.edges if s != node_idx and e != node_idx]
         self.output_nodes.discard(node_idx)
         if self.input_node == node_idx:
             self.input_node = None
-        self.node_types = {k-1 if k > node_idx else k : v for k,v in self.node_types.items()}
+        # Сдвиги индексов после удаления
+        self.node_types = {k - 1 if k > node_idx else k: v for k, v in self.node_types.items()}
         if self.input_node is not None and self.input_node > node_idx:
             self.input_node -= 1
-        self.output_nodes = {i-1 if i > node_idx else i for i in self.output_nodes}
+        self.output_nodes = {i - 1 if i > node_idx else i for i in self.output_nodes}
         self.update_trees()
         self.update_node_lists()
         self.redraw()
+        self.nodes_tree.delete(f"node{node_idx+1}")
 
     def delete_edge(self, edge_idx):
+        """Удалить ребро по индексу"""
         edge = self.edges.pop(edge_idx)
-        self.Q_values.pop((edge[0]+1, edge[1]+1), None)
+        self.Q_values.pop((edge[0] + 1, edge[1] + 1), None)
         self.update_trees()
         self.redraw()
 
     def open_bc_dialog(self):
         dlg = tk.Toplevel(self.root)
         dlg.title("Задать граничные условия")
+
+        tk.Label(dlg, text="Напор (H) узла:").pack(padx=20)
+        h_entry = tk.Entry(dlg)
+        h_entry.pack(padx=20, pady=5)
+
+        tk.Label(dlg, text="Высотная отметка (y) узла:").pack(padx=20)
+        y_entry = tk.Entry(dlg)
+        y_entry.pack(padx=20, pady=5)
 
         tk.Label(dlg, text="Тип граничных условий:").pack(pady=5)
         var_type = tk.StringVar(value="node")
@@ -264,56 +233,160 @@ class DirectedGraphApp:
         tk.Radiobutton(type_frame, text="Обычный узел", variable=type_node_var, value="normal").pack(anchor=tk.W)
         type_frame.pack(pady=5)
 
-        tk.Label(dlg, text="Значение (H для узла или Q для ребра):").pack(padx=20)
-        val_entry = tk.Entry(dlg)
-        val_entry.pack(padx=20, pady=5)
+        k_label = None
+        k_entry = None  # поле для ввода K у ребра
+
+        def on_element_selected(event=None):
+            t = var_type.get()
+            if t != "node":
+                return
+            try:
+                idx = int(elements_combobox.get().split()[1]) - 1
+            except Exception:
+                idx = 0
+
+            h_val = self.H_values.get(idx + 1, 0.0)
+            y_val = self.node_heights.get(idx + 1, 0.0)
+            h_entry.config(state='normal')
+            h_entry.delete(0, tk.END)
+            h_entry.insert(0, str(h_val))
+            y_entry.delete(0, tk.END)
+            y_entry.insert(0, str(y_val))
+
+            type_node_var.set(self.node_types.get(idx, 'normal'))
+
+            if type_node_var.get() == "normal":
+                h_entry.config(state='disabled')
+            else:
+                h_entry.config(state='normal')
+
+        elements_combobox.bind("<<ComboboxSelected>>", on_element_selected)
+
+        def on_type_node_changed(*args):
+            if type_node_var.get() == "normal":
+                h_entry.config(state='disabled')
+            else:
+                h_entry.config(state='normal')
+
+        type_node_var.trace_add("write", on_type_node_changed)
 
         def update_elements(*args):
+            nonlocal k_label, k_entry, h_entry, y_entry
             t = var_type.get()
             if t == "node":
                 vals = [f"Узел {i+1}" for i in range(len(self.nodes))]
                 elements_combobox['values'] = vals
                 if vals:
-                    elements_combobox.current(0)
+                    current_selection = elements_combobox.get()
+                    if current_selection not in vals:
+                        elements_combobox.current(0)
+                    else:
+                        elements_combobox.set(current_selection)
+
+                try:
+                    idx = int(elements_combobox.get().split()[1]) - 1
+                except Exception:
+                    idx = 0
+                h_val = self.H_values.get(idx + 1, 0.0)
+                y_val = self.node_heights.get(idx + 1, 0.0)
+                h_entry.config(state='normal')
+                h_entry.delete(0, tk.END)
+                h_entry.insert(0, str(h_val))
+                y_entry.delete(0, tk.END)
+                y_entry.insert(0, str(y_val))
+                # НЕ вызываем type_node_var.set здесь, чтобы не сбрасывать выбор
+
                 type_frame.pack(pady=5)
+
+                if type_node_var.get() == "normal":
+                    h_entry.config(state='disabled')
+                else:
+                    h_entry.config(state='normal')
+
+                if k_entry:
+                    k_entry.pack_forget()
+                if k_label:
+                    k_label.pack_forget()
+
+                if not y_entry.winfo_ismapped():
+                    y_entry.pack(padx=20, pady=5)
             else:
-                vals = [f"Ребро {s+1} -> {e+1}" for s,e in self.edges]
+                vals = [f"Ребро {s+1} -> {e+1}" for s, e in self.edges]
                 elements_combobox['values'] = vals
                 if vals:
-                    elements_combobox.current(0)
+                    current_selection = elements_combobox.get()
+                    if current_selection not in vals:
+                        elements_combobox.current(0)
+                    else:
+                        elements_combobox.set(current_selection)
+
                 type_frame.pack_forget()
-            val_entry.delete(0, tk.END)
+
+                if h_entry.winfo_ismapped():
+                    h_entry.pack_forget()
+                if y_entry.winfo_ismapped():
+                    y_entry.pack_forget()
+
+                if not k_entry:
+                    k_label = tk.Label(dlg, text="Коэффициент сопротивления K для ребра:")
+                    k_label.pack(padx=20)
+                    k_entry = tk.Entry(dlg)
+                    k_entry.pack(padx=20, pady=5)
+                else:
+                    k_entry.pack(padx=20, pady=5)
 
         var_type.trace_add("write", update_elements)
+        type_node_var.trace_add("write", update_elements)
         update_elements()
 
         def apply():
             t = var_type.get()
             el = elements_var.get()
-            val_str = val_entry.get()
-            try:
-                val = float(val_str)
-            except ValueError:
-                messagebox.showerror("Ошибка", "Значение должно быть числом")
-                return
+
             if t == "node":
                 if not el:
                     messagebox.showerror("Ошибка", "Выберите узел")
                     return
                 idx = int(el.split()[1]) - 1
-                self.node_types[idx] = type_node_var.get()
-                if self.node_types[idx] == "input":
-                    self.input_node = idx
-                    self.output_nodes.discard(idx)
-                elif self.node_types[idx] == "output":
-                    self.output_nodes.add(idx)
+                node_type = type_node_var.get()
+                self.node_types[idx] = node_type
+
+                try:
+                    y_val = float(y_entry.get())
+                    self.node_heights[idx + 1] = y_val
+                except ValueError:
+                    messagebox.showerror("Ошибка", "Высотная отметка y должна быть числом")
+                    return
+
+                if node_type == "normal":
+                    # Напор H не задается, удаляем если был
+                    self.H_values.pop(idx + 1, None)
                     if self.input_node == idx:
                         self.input_node = None
+                    self.output_nodes.discard(idx)
                 else:
-                    if self.input_node == idx:
-                        self.input_node = None
-                    self.output_nodes.discard(idx)
-                self.H_values[idx+1] = val
+                    try:
+                        h_val = float(h_entry.get())
+                        self.H_values[idx + 1] = h_val
+                    except ValueError:
+                        messagebox.showerror("Ошибка", "Напор H должен быть числом")
+                        return
+
+                    if node_type == "input":
+                        self.input_node = idx
+                        self.output_nodes.discard(idx)
+                    elif node_type == "output":
+                        try:
+                            h_val = float(h_entry.get())
+                            self.H_values[idx + 1] = h_val
+                        except ValueError:
+                            messagebox.showerror("Ошибка", "Напор H должен быть числом")
+                            return
+                        self.output_nodes.add(idx)
+                        if self.input_node == idx:
+                            self.input_node = None
+
+
             else:
                 if not el:
                     messagebox.showerror("Ошибка", "Выберите ребро")
@@ -321,25 +394,41 @@ class DirectedGraphApp:
                 parts = el.split()
                 start = int(parts[1].split("->")[0]) - 1
                 end = int(parts[2]) - 1
-                self.Q_values[(start+1, end+1)] = val
+                val_str = val_entry.get()
+                try:
+                    val = float(val_str)
+                except ValueError:
+                    messagebox.showerror("Ошибка", "Значение должно быть числом")
+                    return
+                self.Q_values[(start + 1, end + 1)] = val
+                try:
+                    k_val = float(k_entry.get())
+                except Exception:
+                    k_val = self.K
+                self.K_values[(start + 1, end + 1)] = k_val
+
             self.update_node_lists()
             self.update_trees()
             self.redraw()
-            dlg.destroy()
+            self.update_equations()
+            self.recalculate()
 
-        tk.Button(dlg, text="Применить", command=apply).pack(pady=5)
+        tk.Button(dlg, text="Применить", command=apply).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(dlg, text="Закрыть", command=dlg.destroy).pack(side=tk.LEFT, padx=5, pady=5)
 
     def update_node_lists(self):
+        """Обновить списки входных и выходных узлов"""
         self.input_listbox.delete(0, tk.END)
         self.output_listbox.delete(0, tk.END)
         if self.input_node is not None:
-            H = self.H_values.get(self.input_node+1, 0.0)
-            self.input_listbox.insert(tk.END, f"Вход: Узел {self.input_node+1}, H={H:.2f}")
+            H = self.H_values.get(self.input_node + 1, 0.0)
+            self.input_listbox.insert(tk.END, f"Вход: Узел {self.input_node + 1}, H={H:.2f}")
         for idx in sorted(self.output_nodes):
-            H = self.H_values.get(idx+1, 0.0)
-            self.output_listbox.insert(tk.END, f"Выход: Узел {idx+1}, H={H:.2f}")
+            H = self.H_values.get(idx + 1, 0.0)
+            self.output_listbox.insert(tk.END, f"Выход: Узел {idx + 1}, H={H:.2f}")
 
     def find_all_paths(self, graph, start, end, path=None):
+        """Рекурсивный поиск всех путей от start до end"""
         if path is None:
             path = []
         path = path + [start]
@@ -356,6 +445,7 @@ class DirectedGraphApp:
         return paths
 
     def find_paths_and_update_flows(self):
+        """Инициализация и подсчет расходов по путям между входом и выходами"""
         if self.input_node is None or not self.output_nodes:
             messagebox.showwarning("Ошибка", "Задайте входной и выходные узлы")
             return
@@ -379,18 +469,23 @@ class DirectedGraphApp:
             for i in range(len(path) - 1):
                 edges_in_paths.add((path[i], path[i + 1]))
 
+        # Наложение начальных значений расходов на рёбра
         self.Q_values = {k: 0.0 for k in self.Q_values.keys()}
         for s, e in self.edges:
-            key = (s+1, e+1)
+            key = (s + 1, e + 1)
             if (s, e) in edges_in_paths:
                 self.Q_values[key] = 1.0
 
         self.update_equations()
+        self.recalculate()
+        
         self.redraw()
         self.update_trees()
         self.update_node_lists()
 
     def update_equations(self):
+        """Формировать систему уравнений по сохранению массы и балансу напоров"""
+
         self.equation_list.clear()
         self.equations_text.delete('1.0', tk.END)
         self.solution_text.delete('1.0', tk.END)
@@ -399,15 +494,16 @@ class DirectedGraphApp:
         n = len(self.nodes)
         m = len(self.edges)
 
-        matrix = [[0]*m for _ in range(n)]
+        # Матрица инцидентности (n узлов на m рёбер)
+        matrix = [[0] * m for _ in range(n)]
         for col, (start, end) in enumerate(self.edges):
             matrix[start][col] = -1
             matrix[end][col] = 1
 
+        # Исключаем узлы с <2 связей (будут зависимы)
         rows_to_keep = []
         for i in range(n):
-            nonzero_count = sum(1 for val in matrix[i] if val != 0)
-            if nonzero_count >= 2:
+            if sum(1 for val in matrix[i] if val != 0) >= 2:
                 rows_to_keep.append(i)
 
         if not rows_to_keep:
@@ -416,10 +512,11 @@ class DirectedGraphApp:
 
         reduced_matrix = [matrix[i] for i in rows_to_keep]
 
-        Q_symbols = [symbols(f"Q{self.edges[j][0]+1}{self.edges[j][1]+1}") for j in range(m)]
+        Q_symbols = [symbols(f"Q{self.edges[j][0] + 1}{self.edges[j][1] + 1}") for j in range(m)]
 
+        # Уравнения сохранения массы: сумма потоков в узле = 0
         for idx, row in enumerate(reduced_matrix):
-            expr = sum(row[j]*Q_symbols[j] for j in range(m))
+            expr = sum(row[j] * Q_symbols[j] for j in range(m))
             q_syms = [sym for sym in expr.free_symbols if str(sym).startswith('Q')]
             if len(q_syms) < 1:
                 continue
@@ -432,33 +529,47 @@ class DirectedGraphApp:
             for j, val in enumerate(row):
                 if val == 0:
                     continue
-                label = f"Q{self.edges[j][0]+1}{self.edges[j][1]+1}"
-                terms.append(f"{'+' if val > 0 else '-'}{label}")
+                label = f"Q{self.edges[j][0] + 1}{self.edges[j][1] + 1}"
+                sign = '+' if val > 0 else '-'
+                terms.append(f"{sign}{label}")
             expr_str = "".join(terms)
             if expr_str.startswith('+'):
                 expr_str = expr_str[1:]
             self.equations_text.insert(tk.END, f"{eq_name}: {expr_str} = 0\n")
 
+        # Уравнения напорного баланса по рёбрам:
         for j, (s, e) in enumerate(self.edges):
             self.equation_count += 1
             eq_name = f"eq{self.equation_count}"
             Q = Q_symbols[j]
-            Hs = self.H_values.get(s+1, None)
-            He = self.H_values.get(e+1, None)
-            Hs_sym = symbols(f"H{s+1}")
-            He_sym = symbols(f"H{e+1}")
+
+            # H, которые либо заданы (константы), либо символичны (переменные)
+            Hs = self.H_values.get(s + 1, None)
+            He = self.H_values.get(e + 1, None)
+            Hs_sym = symbols(f"H{s + 1}")
+            He_sym = symbols(f"H{e + 1}")
             H1 = Hs if Hs is not None else Hs_sym
             H2 = He if He is not None else He_sym
 
-            Q_val = self.Q_values.get((s+1, e+1), 0.0)
+            K_val = self.K_values.get((s + 1, e + 1), self.K)
+            Q_val = self.Q_values.get((s + 1, e + 1), 0.0)
+
+            y_i = self.node_heights.get(s + 1, 0.0)  # высота узла начала ребра
+            y_j = self.node_heights.get(e + 1, 0.0)  # высота узла конца ребра
+
             if abs(Q_val) < 1e-9:
                 equation = Eq(Q, 0)
-                self.equations_text.insert(tk.END, f"{eq_name}: Q{s+1}{e+1} = 0\n")
+                self.equations_text.insert(tk.END, f"{eq_name}: Q{s + 1}{e + 1} = 0\n")
             else:
-                equation = Eq(H1 - H2 - self.K*Q*Q, 0)
-                self.equations_text.insert(tk.END, f"{eq_name}: {(f'{Hs:.2f}' if Hs is not None else f'H{s+1}')} - {(f'{He:.2f}' if He is not None else f'H{e+1}')} - K*Q{s+1}{e+1}^2 = 0\n")
+                # Уравнение напорного баланса с учетом разницы высот и сопротивления
+                equation = Eq(H1 - H2 + (y_j - y_i) - K_val * Q * Q, 0)
+                H1_str = f"{Hs:.2f}" if Hs is not None else f"H{s + 1}"
+                H2_str = f"{He:.2f}" if He is not None else f"H{e + 1}"
+                self.equations_text.insert(tk.END,
+                    f"{eq_name}: {H1_str} - {H2_str} + ({y_j:.2f} - {y_i:.2f}) - {K_val:.2f}*Q{s + 1}{e + 1}^2 = 0\n")
             self.equation_list.append(equation)
 
+        # Подсчет неизвестных
         all_vars = set()
         for eq in self.equation_list:
             all_vars.update(eq.free_symbols)
@@ -468,19 +579,29 @@ class DirectedGraphApp:
         self.equations_text.insert(tk.END, f"\nЧисло уравнений: {len(self.equation_list)}\n")
         self.equations_text.insert(tk.END, f"Число неизвестных: {len(unknown_vars)}\n")
 
+        # Вывести граничные условия - напоры и высоты
         bc_text = "Граничные условия:\n"
         for i in range(len(self.nodes)):
-            if i+1 in self.H_values:
-                bc_text += f"Узел {i+1}: H={self.H_values[i+1]}\n"
+            h_val = self.H_values.get(i + 1, None)
+            y_val = self.node_heights.get(i + 1, 0.0)
+            # if h_val is not None:
+            if h_val is not None and h_val != 0.0:
+                bc_text += f"Узел {i+1}: H={h_val:.2f}, y={y_val:.2f}\n"
+            else:
+                bc_text += f"Узел {i+1}: H=не задан, y={y_val:.2f}\n"
         self.solution_text.insert(tk.END, bc_text)
 
+        # Вывести расходы по рёбрам
         self.solution_text.insert(tk.END, "\nРасходы на рёбрах:\n")
         for s, e in self.edges:
-            key = (s+1, e+1)
+            key = (s + 1, e + 1)
             q_val = self.Q_values.get(key, 0.0)
-            self.solution_text.insert(tk.END, f"Ребро {key}: Q={q_val}\n")
+            self.solution_text.insert(tk.END, f"Ребро {key}: Q={q_val:.2f}\n")
 
     def recalculate(self):
+        """Решение системы уравнений с подстановкой известных значений"""
+        self.equations_text.delete('1.0', tk.END)
+        self.solution_text.delete('1.0', tk.END)
         self.update_equations()
         try:
             variables = []
@@ -488,13 +609,18 @@ class DirectedGraphApp:
                 for symb in eq.free_symbols:
                     if symb not in variables:
                         variables.append(symb)
+
+            # Подстановка известных напоров H для решения
             subs = {}
             for idx, val in self.H_values.items():
                 sym = symbols(f"H{idx}")
                 subs[sym] = val
+
             equations_to_solve = [eq.subs(subs) for eq in self.equation_list]
             vars_to_solve = [v for v in variables if v not in subs]
+
             solution = solve(equations_to_solve, vars_to_solve, dict=True)
+
             if solution:
                 sol = solution[0]
                 self.last_solution = sol
@@ -511,13 +637,17 @@ class DirectedGraphApp:
                     self.solution_text.insert(tk.END, f"{var} = {val.evalf():.4f}\n")
             else:
                 self.solution_text.insert(tk.END, "\nРешение не найдено или система несовместима.\n")
+
         except Exception as e:
             self.solution_text.insert(tk.END, f"\nОшибка при решении: {e}\n")
+
         self.redraw()
         self.update_node_lists()
         self.update_trees()
+        self.update_equations()
 
     def redraw(self):
+        """Перерисовка графа на canvas"""
         self.canvas.delete("all")
 
         edges_in_paths = set()
@@ -525,52 +655,43 @@ class DirectedGraphApp:
             for i in range(len(p) - 1):
                 edges_in_paths.add((p[i], p[i + 1]))
 
+        # Рисуем рёбра с цветом, указывающим на принадлежность к найденным путям
         for idx, (s, e) in enumerate(self.edges, start=1):
-            x1, y1 = self.transform(*self.nodes[s])
-            x2, y2 = self.transform(*self.nodes[e])
+            x1, y1 = self.nodes[s]
+            x2, y2 = self.nodes[e]
             color = "black"
             width = 2
             if (s, e) in edges_in_paths:
                 color = "green"
                 width = 3
             self.draw_arrow(x1, y1, x2, y2, color=color, width=width)
-
             q_val = self.Q_values.get((s + 1, e + 1), None)
             if q_val is not None:
                 self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2 + 10,
                                         text=f"Q={q_val:.2f}", fill='blue', font=("Roboto Flex", 10))
 
+        # Рисуем узлы с цветом по типу
         for idx, (x, y) in enumerate(self.nodes, start=1):
-            tx, ty = self.transform(x, y)
-            node_type = self.node_types.get(idx-1, "normal")
+            node_type = self.node_types.get(idx - 1, "normal")
             fill_color = "lightblue"
             if node_type == "input":
                 fill_color = "lightgreen"
             elif node_type == "output":
                 fill_color = "lightcoral"
-            self.canvas.create_oval(tx - self.NODE_RADIUS, ty - self.NODE_RADIUS,
-                                    tx + self.NODE_RADIUS, ty + self.NODE_RADIUS,
+            self.canvas.create_oval(x - self.NODE_RADIUS, y - self.NODE_RADIUS,
+                                    x + self.NODE_RADIUS, y + self.NODE_RADIUS,
                                     fill=fill_color, outline="black")
-            self.canvas.create_text(tx, ty, text=str(idx), font=("Roboto Flex", 12, "bold"))
+            self.canvas.create_text(x, y, text=str(idx), font=("Roboto Flex", 12, "bold"))
 
-            if node_type == "input":
-                pump_width = 20
-                pump_height = 12
-                self.canvas.create_rectangle(tx - pump_width//2, ty - self.NODE_RADIUS - pump_height - 5,
-                                             tx + pump_width//2, ty - self.NODE_RADIUS - 5,
-                                             fill="blue")
-                self.canvas.create_polygon(tx + pump_width//2, ty - self.NODE_RADIUS - pump_height - 5,
-                                           tx + pump_width//2 + 10, ty - self.NODE_RADIUS - pump_height//2 - 5,
-                                           tx + pump_width//2, ty - self.NODE_RADIUS - 5, fill="blue")
+            # Отображение высоты y под узлом
+            y_val = self.node_heights.get(idx, 0.0)
+            self.canvas.create_text(x, y + self.NODE_RADIUS + 10,
+                                    text=f"y={y_val:.2f}", font=("Roboto Flex", 10), fill="black")
 
-            if node_type == "output":
-                arrow_length = 20
-                self.canvas.create_line(tx, ty - self.NODE_RADIUS, tx, ty - self.NODE_RADIUS - arrow_length,
-                                        arrow=tk.LAST, width=4, fill='red')
-
+            # Отображение напора H над узлом (если задан)
             h_val = self.H_values.get(idx, None)
             if h_val is not None:
-                self.canvas.create_text(tx, ty + self.NODE_RADIUS + 10,
+                self.canvas.create_text(x, y - self.NODE_RADIUS - 10,
                                         text=f"H={h_val:.2f}", font=("Roboto Flex", 10), fill="black")
 
         self.update_incidence_matrix()
@@ -578,6 +699,7 @@ class DirectedGraphApp:
         self.update_trees()
 
     def draw_arrow(self, x1, y1, x2, y2, color="black", width=2):
+        """Рисует стрелку с учетом радиуса узла"""
         from math import atan2, cos, sin
         dx = x2 - x1
         dy = y2 - y1
@@ -587,12 +709,12 @@ class DirectedGraphApp:
         start_y = y1 + r * sin(angle)
         end_x = x2 - r * cos(angle)
         end_y = y2 - r * sin(angle)
-        self.canvas.create_line(start_x, start_y, end_x, end_y,
-                                arrow=tk.LAST, width=width, fill=color)
+        self.canvas.create_line(start_x, start_y, end_x, end_y, arrow=tk.LAST, width=width, fill=color)
 
     def update_incidence_matrix(self):
+        """Обновить матрицу инцидентности и отобразить ее в текстовом поле"""
         n = len(self.nodes)
-        real_edges = [e for e in self.edges]
+        real_edges = list(self.edges)  # Текущие ребра
         m = len(real_edges)
 
         matrix = [[0] * m for _ in range(n)]
@@ -602,42 +724,48 @@ class DirectedGraphApp:
 
         rows_to_keep = []
         for i in range(n):
-            cnt = sum(1 for v in matrix[i] if v != 0)
-            if cnt >= 2:
+            if sum(1 for v in matrix[i] if v != 0) >= 2:
                 rows_to_keep.append(i)
 
         text = "Матрица инцидентности (узлы x рёбра):\n\n"
-        header = ["e" + str(i+1) for i in range(m)]
+        header = ["e" + str(i + 1) for i in range(m)]
         text += "\t" + "\t".join(header) + "\n"
         for i in rows_to_keep:
-            text += "n" + str(i+1) + "\t" + "\t".join(map(str, matrix[i])) + "\n"
+            text += "n" + str(i + 1) + "\t" + "\t".join(map(str, matrix[i])) + "\n"
 
         self.matrix_text.delete(1.0, tk.END)
         self.matrix_text.insert(tk.END, text)
 
     def update_trees(self):
-        for item in self.nodes_tree.get_children():
-            self.nodes_tree.delete(item)
+        """Обновить таблицы узлов и рёбер"""
+        self.nodes_tree.delete(*self.nodes_tree.get_children())
         for idx, (x, y) in enumerate(self.nodes, start=1):
             h_val = self.H_values.get(idx, "")
-            node_type = self.node_types.get(idx-1, "normal")
+            y_val = self.node_heights.get(idx, "")
+            node_type = self.node_types.get(idx - 1, "normal")
             if isinstance(h_val, (int, float)):
                 h_val = f"{h_val:.2f}"
-            self.nodes_tree.insert('', 'end', iid=f"node{idx}", values=(h_val, node_type))
+            if isinstance(y_val, (int, float)):
+                y_val = f"{y_val:.2f}"
+            self.nodes_tree.insert('', 'end', iid=f"node{idx}", values=(h_val, y_val, node_type))
 
-        for item in self.edges_tree.get_children():
-            self.edges_tree.delete(item)
+        self.edges_tree.delete(*self.edges_tree.get_children())
         for idx, (s, e) in enumerate(self.edges, start=1):
-            q_val = self.Q_values.get((s+1, e+1), 0.0)
-            self.edges_tree.insert('', 'end', iid=f"edge{idx}", values=(s+1, e+1, f"{q_val:.2f}"))
+            q_val = self.Q_values.get((s + 1, e + 1), 0.0)
+            k_val = self.K_values.get((s + 1, e + 1), self.K)
+            self.edges_tree.insert('', 'end', iid=f"edge{idx}",
+                                   values=(s + 1, e + 1, f"{q_val:.2f}", f"{k_val:.2f}"))
 
     def on_node_edit(self, event):
+        """Обработка двойного щелчка в таблице узлов"""
         self.edit_cell(event, self.nodes_tree, self.update_node_value)
 
     def on_edge_edit(self, event):
+        """Обработка двойного щелчка в таблице рёбер"""
         self.edit_cell(event, self.edges_tree, self.update_edge_value)
 
     def edit_cell(self, event, tree, callback):
+        """Реализация редактирования ячейки в таблицах"""
         x, y, widget = event.x, event.y, event.widget
         rowid = widget.identify_row(y)
         column = widget.identify_column(x)
@@ -671,10 +799,16 @@ class DirectedGraphApp:
         entry.bind("<FocusOut>", on_focus_out)
 
     def update_node_value(self, rowid, col_num, value):
+        """Обновление данных узла после редактирования в таблице"""
         node_idx = int(rowid.replace("node", "")) - 1
         if col_num == 0:
-            self.H_values[node_idx+1] = value
+            # Обновляем напор H
+            self.H_values[node_idx + 1] = value
         elif col_num == 1:
+            # Обновляем высоту y
+            self.node_heights[node_idx + 1] = value
+        elif col_num == 2:
+            # Обновляем тип узла ('normal', 'input', 'output')
             str_value = str(value)
             if str_value in ("normal", "input", "output"):
                 self.node_types[node_idx] = str_value
@@ -693,11 +827,14 @@ class DirectedGraphApp:
         self.recalculate()
 
     def update_edge_value(self, rowid, col_num, value):
-        if col_num == 2:
-            edge_idx = int(rowid.replace("edge", "")) - 1
-            edge = self.edges[edge_idx]
-            self.Q_values[(edge[0]+1, edge[1]+1)] = value
-            self.update_trees()
+        edge_idx = int(rowid.replace("edge", "")) - 1
+        edge = self.edges[edge_idx]
+        if col_num == 2:  # Изменение расхода Q
+            self.Q_values[(edge[0] + 1, edge[1] + 1)] = value
+        elif col_num == 3:  # Изменение коэффициента K
+            self.K_values[(edge[0] + 1, edge[1] + 1)] = value
+            # Пересчитать цепочки и уравнения после изменения K
+            self.find_paths_and_update_flows()
             self.recalculate()
 
 
